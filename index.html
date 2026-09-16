@@ -1,0 +1,1162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+<title>AR Neural Network TLM</title>
+
+<style>
+    * {
+        box-sizing: border-box;
+    }
+
+    html, body {
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100%;
+        overflow: hidden;
+        background: black;
+        font-family: Arial, sans-serif;
+    }
+
+    #camera {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        z-index: 1;
+    }
+
+    #threeCanvas {
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 2;
+        pointer-events: none;
+    }
+
+    #title {
+        position: fixed;
+        top: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 5;
+
+        color: white;
+        background: rgba(0,0,0,0.72);
+        padding: 9px 18px;
+        border-radius: 20px;
+
+        font-size: 19px;
+        font-weight: bold;
+        text-align: center;
+        white-space: nowrap;
+    }
+
+    #info {
+        position: fixed;
+        bottom: 12px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 5;
+
+        color: white;
+        background: rgba(0,0,0,0.72);
+        padding: 8px 14px;
+        border-radius: 15px;
+
+        font-size: 13px;
+        text-align: center;
+        max-width: 92%;
+    }
+
+    #startScreen {
+        position: fixed;
+        inset: 0;
+        z-index: 20;
+
+        background: rgba(0,0,0,0.92);
+
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+
+        color: white;
+        text-align: center;
+        padding: 25px;
+    }
+
+    #startScreen h1 {
+        font-size: 28px;
+        margin-bottom: 10px;
+    }
+
+    #startScreen p {
+        font-size: 16px;
+        line-height: 1.5;
+        max-width: 500px;
+    }
+
+    #startButton {
+        margin-top: 20px;
+        padding: 14px 28px;
+
+        border: none;
+        border-radius: 30px;
+
+        font-size: 18px;
+        font-weight: bold;
+
+        background: white;
+        color: black;
+    }
+
+    #status {
+        margin-top: 15px;
+        font-size: 14px;
+        color: #ddd;
+    }
+</style>
+</head>
+
+<body>
+
+<video id="camera" autoplay playsinline muted></video>
+
+<canvas id="threeCanvas"></canvas>
+
+<div id="title">
+    🧠 NEURAL NETWORK — IMAGE CLASSIFICATION
+</div>
+
+<div id="info">
+    Data flows → one node sends its result to every node in the next layer
+</div>
+
+<div id="startScreen">
+    <h1>🧠 Neural Network AR TLM</h1>
+
+    <p>
+        This model shows how image data passes through
+        Input → Hidden Layer 1 → Hidden Layer 2 → Output.
+    </p>
+
+    <p>
+        Each active node sends its result to
+        <b>all nodes in the next layer.</b>
+    </p>
+
+    <button id="startButton">
+        START AR
+    </button>
+
+    <div id="status"></div>
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+<script>
+
+const video = document.getElementById("camera");
+const canvas = document.getElementById("threeCanvas");
+const startScreen = document.getElementById("startScreen");
+const startButton = document.getElementById("startButton");
+const statusText = document.getElementById("status");
+
+let scene;
+let camera3D;
+let renderer;
+
+let network;
+let nodes = [];
+let connections = [];
+let labels = [];
+let packets = [];
+
+let layerGroups = [];
+
+let orientationX = 0;
+let orientationY = 0;
+
+let lastTime = 0;
+
+
+/* =========================================================
+   CAMERA
+========================================================= */
+
+async function startCamera() {
+
+    try {
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: {
+                    ideal: "environment"
+                }
+            },
+            audio: false
+        });
+
+        video.srcObject = stream;
+
+        await video.play();
+
+        startScreen.style.display = "none";
+
+        initThree();
+
+    } catch (error) {
+
+        statusText.innerHTML =
+            "Camera access failed.<br>" +
+            "Please allow camera permission and reload the page.";
+
+        console.error(error);
+    }
+}
+
+
+/* =========================================================
+   THREE.JS
+========================================================= */
+
+function initThree() {
+
+    scene = new THREE.Scene();
+
+    camera3D = new THREE.PerspectiveCamera(
+        55,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+    );
+
+    camera3D.position.z = 10;
+
+    renderer = new THREE.WebGLRenderer({
+        canvas: canvas,
+        alpha: true,
+        antialias: true
+    });
+
+    renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+    );
+
+    renderer.setPixelRatio(
+        Math.min(window.devicePixelRatio, 2)
+    );
+
+    createNetwork();
+
+    window.addEventListener(
+        "resize",
+        handleResize
+    );
+
+    window.addEventListener(
+        "orientationchange",
+        () => {
+            setTimeout(handleResize, 300);
+        }
+    );
+
+    window.addEventListener(
+        "deviceorientation",
+        handleDeviceOrientation,
+        true
+    );
+
+    animate();
+}
+
+
+/* =========================================================
+   DEVICE ORIENTATION
+========================================================= */
+
+function handleDeviceOrientation(event) {
+
+    if (event.gamma !== null) {
+        orientationX = event.gamma;
+    }
+
+    if (event.beta !== null) {
+        orientationY = event.beta;
+    }
+}
+
+
+/* =========================================================
+   NETWORK CREATION
+========================================================= */
+
+function createNetwork() {
+
+    if (network) {
+        scene.remove(network);
+    }
+
+    network = new THREE.Group();
+
+    nodes = [];
+    connections = [];
+    labels = [];
+    packets = [];
+    layerGroups = [];
+
+    scene.add(network);
+
+    const portrait =
+        window.innerHeight > window.innerWidth;
+
+    /*
+        NETWORK STRUCTURE
+
+        Input       = 4 nodes
+        Hidden 1    = 5 nodes
+        Hidden 2    = 4 nodes
+        Output      = 1 node
+    */
+
+    const structure = [
+        4,
+        5,
+        4,
+        1
+    ];
+
+    const layerNames = [
+        "INPUT LAYER",
+        "HIDDEN LAYER 1",
+        "HIDDEN LAYER 2",
+        "OUTPUT LAYER"
+    ];
+
+    const layerDescriptions = [
+        "IMAGE DATA",
+        "FEATURE EXTRACTION",
+        "PATTERN DETECTION",
+        "CAT 92%"
+    ];
+
+
+    /* =====================================================
+       POSITION LAYERS
+    ===================================================== */
+
+    let layerPositions = [];
+
+    if (portrait) {
+
+        layerPositions = [
+            { x: 0, y: 2.8 },
+            { x: 0, y: 1.0 },
+            { x: 0, y: -0.8 },
+            { x: 0, y: -2.6 }
+        ];
+
+    } else {
+
+        layerPositions = [
+            { x: -3.8, y: 0 },
+            { x: -1.3, y: 0 },
+            { x: 1.3, y: 0 },
+            { x: 3.8, y: 0 }
+        ];
+    }
+
+
+    /* =====================================================
+       CREATE LAYERS
+    ===================================================== */
+
+    structure.forEach((count, layerIndex) => {
+
+        const group = new THREE.Group();
+
+        const position = layerPositions[layerIndex];
+
+        group.position.set(
+            position.x,
+            position.y,
+            0
+        );
+
+        network.add(group);
+
+        layerGroups.push(group);
+
+        const spacing =
+            portrait
+            ? 0.55
+            : 0.65;
+
+        const totalHeight =
+            (count - 1) * spacing;
+
+        for (let i = 0; i < count; i++) {
+
+            const nodeGeometry =
+                new THREE.SphereGeometry(
+                    0.20,
+                    24,
+                    24
+                );
+
+            const nodeMaterial =
+                new THREE.MeshBasicMaterial({
+                    color: 0xffffff
+                });
+
+            const node =
+                new THREE.Mesh(
+                    nodeGeometry,
+                    nodeMaterial
+                );
+
+            if (portrait) {
+
+                node.position.y =
+                    totalHeight / 2 -
+                    i * spacing;
+
+            } else {
+
+                node.position.y =
+                    totalHeight / 2 -
+                    i * spacing;
+            }
+
+            group.add(node);
+
+            node.userData = {
+                layer: layerIndex,
+                index: i,
+                baseScale: 1
+            };
+
+            nodes.push(node);
+        }
+
+
+        /* =================================================
+           LAYER LABEL
+        ================================================= */
+
+        const label =
+            createTextSprite(
+                layerNames[layerIndex],
+                0.16
+            );
+
+        label.position.set(
+            0,
+            totalHeight / 2 + 0.48,
+            0
+        );
+
+        group.add(label);
+
+        labels.push(label);
+
+
+        /* =================================================
+           DESCRIPTION
+        ================================================= */
+
+        const desc =
+            createTextSprite(
+                layerDescriptions[layerIndex],
+                0.105
+            );
+
+        desc.position.set(
+            0,
+            -totalHeight / 2 - 0.48,
+            0
+        );
+
+        group.add(desc);
+
+        labels.push(desc);
+    });
+
+
+    /* =====================================================
+       CONNECT EVERY NODE TO EVERY NODE IN NEXT LAYER
+    ===================================================== */
+
+    for (let layer = 0; layer < structure.length - 1; layer++) {
+
+        const currentGroup =
+            layerGroups[layer];
+
+        const nextGroup =
+            layerGroups[layer + 1];
+
+        for (
+            let a = 0;
+            a < currentGroup.children.length;
+            a++
+        ) {
+
+            const currentNode =
+                currentGroup.children[a];
+
+            if (!currentNode.userData ||
+                currentNode.userData.index === undefined) {
+                continue;
+            }
+
+            for (
+                let b = 0;
+                b < nextGroup.children.length;
+                b++
+            ) {
+
+                const nextNode =
+                    nextGroup.children[b];
+
+                if (!nextNode.userData ||
+                    nextNode.userData.index === undefined) {
+                    continue;
+                }
+
+                createConnection(
+                    currentNode,
+                    nextNode,
+                    layer
+                );
+            }
+        }
+    }
+
+
+    /* =====================================================
+       ADD EXPLANATION
+    ===================================================== */
+
+    const explanation =
+        createTextSprite(
+            "ONE NODE → ALL NEXT-LAYER NODES",
+            0.12
+        );
+
+    if (portrait) {
+
+        explanation.position.set(
+            0,
+            -3.25,
+            0
+        );
+
+    } else {
+
+        explanation.position.set(
+            0,
+            -2.45,
+            0
+        );
+    }
+
+    network.add(explanation);
+}
+
+
+/* =========================================================
+   CONNECTIONS
+========================================================= */
+
+function createConnection(
+    nodeA,
+    nodeB,
+    layerIndex
+) {
+
+    const geometry =
+        new THREE.BufferGeometry();
+
+    const material =
+        new THREE.LineBasicMaterial({
+            color: 0xffffff,
+            transparent: true,
+            opacity: 0.22
+        });
+
+    const line =
+        new THREE.Line(
+            geometry,
+            material
+        );
+
+    network.add(line);
+
+    connections.push({
+        line: line,
+        a: nodeA,
+        b: nodeB,
+        layer: layerIndex,
+        baseOpacity: 0.22
+    });
+}
+
+
+/* =========================================================
+   TEXT SPRITE
+========================================================= */
+
+function createTextSprite(
+    text,
+    scale
+) {
+
+    const canvasText =
+        document.createElement("canvas");
+
+    const context =
+        canvasText.getContext("2d");
+
+    canvasText.width = 1024;
+    canvasText.height = 256;
+
+    context.clearRect(
+        0,
+        0,
+        canvasText.width,
+        canvasText.height
+    );
+
+    context.font =
+        "bold 52px Arial";
+
+    context.fillStyle =
+        "white";
+
+    context.textAlign =
+        "center";
+
+    context.textBaseline =
+        "middle";
+
+    context.fillText(
+        text,
+        canvasText.width / 2,
+        canvasText.height / 2
+    );
+
+    const texture =
+        new THREE.CanvasTexture(
+            canvasText
+        );
+
+    texture.needsUpdate = true;
+
+    const material =
+        new THREE.SpriteMaterial({
+            map: texture,
+            transparent: true
+        });
+
+    const sprite =
+        new THREE.Sprite(material);
+
+    sprite.scale.set(
+        3.5 * scale,
+        0.9 * scale,
+        1
+    );
+
+    return sprite;
+}
+
+
+/* =========================================================
+   WORLD POSITION OF NODE
+========================================================= */
+
+function getWorldPosition(node) {
+
+    const position =
+        new THREE.Vector3();
+
+    node.getWorldPosition(position);
+
+    return position;
+}
+
+
+/* =========================================================
+   DATA PACKET
+========================================================= */
+
+function createPacket(
+    startNode,
+    endNode,
+    layerIndex
+) {
+
+    const geometry =
+        new THREE.SphereGeometry(
+            0.09,
+            16,
+            16
+        );
+
+    const material =
+        new THREE.MeshBasicMaterial({
+            color: 0xffffff
+        });
+
+    const packet =
+        new THREE.Mesh(
+            geometry,
+            material
+        );
+
+    network.add(packet);
+
+    const start =
+        getWorldPosition(startNode);
+
+    const end =
+        getWorldPosition(endNode);
+
+    packet.position.copy(start);
+
+    packets.push({
+        mesh: packet,
+        start: start.clone(),
+        end: end.clone(),
+        progress: 0,
+        speed: 1.4,
+        layer: layerIndex
+    });
+}
+
+
+/* =========================================================
+   START NODE → ALL NEXT NODES
+========================================================= */
+
+function sendFromNode(
+    node,
+    nextLayerIndex
+) {
+
+    if (!layerGroups[nextLayerIndex]) {
+        return;
+    }
+
+    const nextGroup =
+        layerGroups[nextLayerIndex];
+
+    /*
+       IMPORTANT:
+
+       One node sends its result
+       to EVERY node in the next layer.
+    */
+
+    nextGroup.children.forEach(
+        nextNode => {
+
+            if (
+                nextNode.userData &&
+                nextNode.userData.index !== undefined
+            ) {
+
+                createPacket(
+                    node,
+                    nextNode,
+                    nextLayerIndex - 1
+                );
+            }
+        }
+    );
+}
+
+
+/* =========================================================
+   ANIMATION STATE
+========================================================= */
+
+let animationStart =
+    performance.now();
+
+let currentLayer = 0;
+
+let currentNode = 0;
+
+let phase = 0;
+
+const NODE_DELAY = 0.85;
+
+let lastNodeChange = 0;
+
+
+/* =========================================================
+   LAYER-BY-LAYER ANIMATION
+========================================================= */
+
+function updateNetworkAnimation(time) {
+
+    const elapsed =
+        (time - animationStart) / 1000;
+
+    /*
+       Every NODE_DELAY seconds,
+       activate another node.
+    */
+
+    if (
+        time / 1000 -
+        lastNodeChange >
+        NODE_DELAY
+    ) {
+
+        lastNodeChange =
+            time / 1000;
+
+        advanceAnimation();
+    }
+
+
+    /* =====================================================
+       RESET NODE VISUALS
+    ===================================================== */
+
+    nodes.forEach(node => {
+
+        node.scale.set(
+            1,
+            1,
+            1
+        );
+
+        node.material.color.set(
+            0xffffff
+        );
+    });
+
+
+    connections.forEach(connection => {
+
+        connection.line.material.opacity =
+            connection.baseOpacity;
+    });
+
+
+    /* =====================================================
+       ACTIVE NODE
+    ===================================================== */
+
+    const activeGroup =
+        layerGroups[currentLayer];
+
+    if (
+        activeGroup &&
+        activeGroup.children[currentNode]
+    ) {
+
+        const activeNode =
+            activeGroup.children[currentNode];
+
+        /*
+           Pulsing active node
+        */
+
+        const pulse =
+            1 +
+            Math.sin(
+                elapsed * 7
+            ) * 0.35;
+
+        activeNode.scale.set(
+            pulse,
+            pulse,
+            pulse
+        );
+
+        activeNode.material.color.set(
+            0xffff00
+        );
+
+
+        /* =================================================
+           HIGHLIGHT ALL OUTGOING CONNECTIONS
+        ================================================= */
+
+        connections.forEach(
+            connection => {
+
+                if (
+                    connection.layer === currentLayer &&
+                    connection.a === activeNode
+                ) {
+
+                    connection.line.material.opacity =
+                        1.0;
+                }
+            }
+        );
+    }
+}
+
+
+/* =========================================================
+   ADVANCE NODE / LAYER
+========================================================= */
+
+function advanceAnimation() {
+
+    const group =
+        layerGroups[currentLayer];
+
+    if (!group) {
+        return;
+    }
+
+    const activeNode =
+        group.children[currentNode];
+
+
+    /* =====================================================
+       SEND CURRENT NODE RESULT TO ALL NEXT NODES
+    ===================================================== */
+
+    if (
+        currentLayer <
+        layerGroups.length - 1
+    ) {
+
+        sendFromNode(
+            activeNode,
+            currentLayer + 1
+        );
+    }
+
+
+    /* =====================================================
+       MOVE TO NEXT NODE
+    ===================================================== */
+
+    currentNode++;
+
+    /*
+       When all nodes of current layer
+       have been processed, move to next layer.
+    */
+
+    if (
+        currentNode >=
+        group.children.length
+    ) {
+
+        currentNode = 0;
+
+        currentLayer++;
+
+        /*
+           After output, restart from input.
+        */
+
+        if (
+            currentLayer >=
+            layerGroups.length
+        ) {
+
+            currentLayer = 0;
+            currentNode = 0;
+        }
+    }
+}
+
+
+/* =========================================================
+   UPDATE PACKETS
+========================================================= */
+
+function updatePackets(delta) {
+
+    for (
+        let i = packets.length - 1;
+        i >= 0;
+        i--
+    ) {
+
+        const packet =
+            packets[i];
+
+        packet.progress +=
+            delta *
+            packet.speed;
+
+        if (
+            packet.progress >= 1
+        ) {
+
+            network.remove(
+                packet.mesh
+            );
+
+            packets.splice(
+                i,
+                1
+            );
+
+            continue;
+        }
+
+        packet.mesh.position.lerpVectors(
+            packet.start,
+            packet.end,
+            packet.progress
+        );
+    }
+}
+
+
+/* =========================================================
+   UPDATE CONNECTION GEOMETRY
+========================================================= */
+
+function updateConnections() {
+
+    connections.forEach(
+        connection => {
+
+            const start =
+                getWorldPosition(
+                    connection.a
+                );
+
+            const end =
+                getWorldPosition(
+                    connection.b
+                );
+
+            const positions =
+                new Float32Array([
+                    start.x,
+                    start.y,
+                    start.z,
+
+                    end.x,
+                    end.y,
+                    end.z
+                ]);
+
+            connection.line.geometry.setAttribute(
+                "position",
+                new THREE.BufferAttribute(
+                    positions,
+                    3
+                )
+            );
+
+            connection.line.geometry.attributes
+                .position.needsUpdate = true;
+        }
+    );
+}
+
+
+/* =========================================================
+   RENDER LOOP
+========================================================= */
+
+function animate(time) {
+
+    requestAnimationFrame(
+        animate
+    );
+
+    if (!lastTime) {
+        lastTime = time;
+    }
+
+    const delta =
+        Math.min(
+            (time - lastTime) / 1000,
+            0.05
+        );
+
+    lastTime = time;
+
+
+    /* =====================================================
+       DEVICE MOVEMENT
+    ===================================================== */
+
+    if (network) {
+
+        network.rotation.y =
+            orientationX * 0.003;
+
+        network.rotation.x =
+            orientationY * 0.001;
+    }
+
+
+    updateNetworkAnimation(
+        time
+    );
+
+    updatePackets(
+        delta
+    );
+
+    updateConnections();
+
+
+    renderer.render(
+        scene,
+        camera3D
+    );
+}
+
+
+/* =========================================================
+   RESIZE
+========================================================= */
+
+function handleResize() {
+
+    camera3D.aspect =
+        window.innerWidth /
+        window.innerHeight;
+
+    camera3D.updateProjectionMatrix();
+
+    renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+    );
+
+    createNetwork();
+}
+
+
+/* =========================================================
+   START
+========================================================= */
+
+startButton.addEventListener(
+    "click",
+    startCamera
+);
+
+</script>
+
+</body>
+</html>
