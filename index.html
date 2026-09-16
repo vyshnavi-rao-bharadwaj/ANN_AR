@@ -1,0 +1,1547 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+<meta charset="UTF-8">
+
+<meta name="viewport"
+      content="width=device-width,
+               initial-scale=1,
+               maximum-scale=1,
+               user-scalable=no">
+
+<title>Neural Network AR TLM</title>
+
+<style>
+
+html, body {
+
+    margin: 0;
+    padding: 0;
+
+    width: 100%;
+    height: 100%;
+
+    overflow: hidden;
+
+    background: black;
+
+    font-family: Arial, sans-serif;
+}
+
+
+/* CAMERA */
+
+#camera {
+
+    position: fixed;
+
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+
+    z-index: 1;
+
+}
+
+
+/* THREE.JS */
+
+#threeCanvas {
+
+    position: fixed;
+
+    inset: 0;
+
+    width: 100%;
+    height: 100%;
+
+    z-index: 2;
+
+    pointer-events: none;
+
+}
+
+
+/* TITLE */
+
+#title {
+
+    position: fixed;
+
+    top: 12px;
+
+    left: 50%;
+
+    transform: translateX(-50%);
+
+    z-index: 10;
+
+    background: rgba(0,0,0,0.72);
+
+    color: white;
+
+    padding: 10px 18px;
+
+    border-radius: 12px;
+
+    text-align: center;
+
+    font-size: 22px;
+
+    font-weight: bold;
+
+    white-space: nowrap;
+
+}
+
+
+#subtitle {
+
+    display: block;
+
+    margin-top: 3px;
+
+    font-size: 13px;
+
+    font-weight: normal;
+
+}
+
+
+/* INFO */
+
+#info {
+
+    position: fixed;
+
+    bottom: 15px;
+
+    left: 50%;
+
+    transform: translateX(-50%);
+
+    z-index: 10;
+
+    width: 88%;
+
+    max-width: 500px;
+
+    background: rgba(0,0,0,0.75);
+
+    color: white;
+
+    padding: 10px;
+
+    border-radius: 12px;
+
+    text-align: center;
+
+    font-size: 14px;
+
+}
+
+
+/* START */
+
+#startScreen {
+
+    position: fixed;
+
+    inset: 0;
+
+    z-index: 30;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+
+    justify-content: center;
+
+    background: #111820;
+
+    color: white;
+
+    text-align: center;
+
+}
+
+
+#startScreen h1 {
+
+    font-size: 29px;
+
+    margin-bottom: 5px;
+
+}
+
+
+#startScreen p {
+
+    font-size: 15px;
+
+    line-height: 1.5;
+
+    max-width: 300px;
+
+}
+
+
+#startButton {
+
+    margin-top: 18px;
+
+    padding: 16px 30px;
+
+    border: none;
+
+    border-radius: 30px;
+
+    background: white;
+
+    color: black;
+
+    font-size: 17px;
+
+    font-weight: bold;
+
+}
+
+
+/* LANDSCAPE */
+
+@media (orientation: landscape) {
+
+    #title {
+
+        font-size: 20px;
+
+        padding: 8px 16px;
+
+    }
+
+}
+
+
+/* PORTRAIT */
+
+@media (orientation: portrait) {
+
+    #title {
+
+        font-size: 20px;
+
+    }
+
+    #subtitle {
+
+        font-size: 12px;
+
+    }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+
+<video id="camera"
+       autoplay
+       muted
+       playsinline>
+</video>
+
+
+<canvas id="threeCanvas"></canvas>
+
+
+<div id="title">
+
+    NEURAL NETWORK
+
+    <span id="subtitle">
+        AI Teaching-Learning Material
+    </span>
+
+</div>
+
+
+<div id="info">
+
+    IMAGE → FEATURES → CLASSIFICATION
+
+</div>
+
+
+<div id="startScreen">
+
+    <h1>NEURAL NETWORK</h1>
+
+    <p>
+
+        Interactive AI Teaching-Learning Material
+
+        <br><br>
+
+        Move your phone to explore the model.
+
+    </p>
+
+    <button id="startButton">
+        START TLM
+    </button>
+
+</div>
+
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js">
+</script>
+
+
+<script>
+
+/* =====================================================
+   CAMERA
+===================================================== */
+
+const video =
+    document.getElementById("camera");
+
+const startScreen =
+    document.getElementById("startScreen");
+
+const startButton =
+    document.getElementById("startButton");
+
+const info =
+    document.getElementById("info");
+
+
+let cameraStream;
+
+
+async function startCamera() {
+
+    try {
+
+        cameraStream =
+            await navigator.mediaDevices.getUserMedia({
+
+                video: {
+
+                    facingMode: {
+                        ideal: "environment"
+                    },
+
+                    width: {
+                        ideal: 1920
+                    },
+
+                    height: {
+                        ideal: 1080
+                    }
+
+                },
+
+                audio: false
+
+            });
+
+
+        video.srcObject =
+            cameraStream;
+
+
+        await video.play();
+
+
+        startScreen.style.display =
+            "none";
+
+
+        initThree();
+
+
+        enableDeviceMovement();
+
+    }
+
+    catch(error) {
+
+        console.error(error);
+
+        alert(
+            "Camera permission is required."
+        );
+
+    }
+
+}
+
+
+startButton.onclick =
+    startCamera;
+
+
+/* =====================================================
+   THREE
+===================================================== */
+
+let scene;
+
+let camera3D;
+
+let renderer;
+
+let network;
+
+let clock;
+
+let nodes = [];
+
+let connections = [];
+
+let packets = [];
+
+let layerGroups = [];
+
+
+/* DEVICE MOVEMENT */
+
+let deviceGamma = 0;
+
+let deviceBeta = 0;
+
+
+function initThree() {
+
+    clock =
+        new THREE.Clock();
+
+
+    scene =
+        new THREE.Scene();
+
+
+    camera3D =
+        new THREE.PerspectiveCamera(
+
+            45,
+
+            window.innerWidth /
+            window.innerHeight,
+
+            0.1,
+
+            100
+
+        );
+
+
+    camera3D.position.set(
+        0,
+        0,
+        10
+    );
+
+
+    renderer =
+        new THREE.WebGLRenderer({
+
+            canvas:
+                document.getElementById(
+                    "threeCanvas"
+                ),
+
+            alpha: true,
+
+            antialias: true
+
+        });
+
+
+    renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+    );
+
+
+    renderer.setPixelRatio(
+        Math.min(
+            window.devicePixelRatio,
+            2
+        )
+    );
+
+
+    scene.add(
+
+        new THREE.AmbientLight(
+            0xffffff,
+            2
+        )
+
+    );
+
+
+    const light =
+        new THREE.DirectionalLight(
+            0xffffff,
+            1.5
+        );
+
+
+    light.position.set(
+        3,
+        5,
+        8
+    );
+
+
+    scene.add(light);
+
+
+    createNetwork();
+
+
+    window.addEventListener(
+        "resize",
+        handleResize
+    );
+
+
+    animate();
+
+}
+
+
+/* =====================================================
+   NETWORK
+===================================================== */
+
+function createNetwork() {
+
+    network =
+        new THREE.Group();
+
+
+    scene.add(network);
+
+
+    buildLayout();
+
+}
+
+
+/* =====================================================
+   RESPONSIVE LAYOUT
+===================================================== */
+
+function buildLayout() {
+
+    /* REMOVE OLD */
+
+    while(network.children.length) {
+
+        network.remove(
+            network.children[0]
+        );
+
+    }
+
+
+    nodes = [];
+
+    connections = [];
+
+    packets = [];
+
+
+    const portrait =
+        window.innerHeight >
+        window.innerWidth;
+
+
+    /*
+       PORTRAIT
+
+       Layers are stacked vertically.
+
+       IMAGE
+
+       ↓
+
+       INPUT
+
+       ↓
+
+       HIDDEN 1
+
+       ↓
+
+       HIDDEN 2
+
+       ↓
+
+       OUTPUT
+    */
+
+
+    let layers;
+
+
+    if(portrait) {
+
+        layers = [
+
+            {
+                name: "INPUT LAYER",
+                count: 4,
+                x: 0,
+                y: 2.7,
+                color: 0x3498db
+            },
+
+            {
+                name: "HIDDEN LAYER 1",
+                count: 5,
+                x: 0,
+                y: 1.0,
+                color: 0x9b59b6
+            },
+
+            {
+                name: "HIDDEN LAYER 2",
+                count: 4,
+                x: 0,
+                y: -0.7,
+                color: 0xe67e22
+            },
+
+            {
+                name: "OUTPUT LAYER",
+                count: 1,
+                x: 0,
+                y: -2.4,
+                color: 0x2ecc71
+            }
+
+        ];
+
+    }
+
+    else {
+
+        layers = [
+
+            {
+                name: "INPUT LAYER",
+                count: 4,
+                x: -3.7,
+                y: 0,
+                color: 0x3498db
+            },
+
+            {
+                name: "HIDDEN LAYER 1",
+                count: 5,
+                x: -1.3,
+                y: 0,
+                color: 0x9b59b6
+            },
+
+            {
+                name: "HIDDEN LAYER 2",
+                count: 4,
+                x: 1.3,
+                y: 0,
+                color: 0xe67e22
+            },
+
+            {
+                name: "OUTPUT LAYER",
+                count: 1,
+                x: 3.7,
+                y: 0,
+                color: 0x2ecc71
+            }
+
+        ];
+
+    }
+
+
+    const layerNodes = [];
+
+
+    /* =================================================
+       CREATE LAYERS
+    ================================================= */
+
+    layers.forEach(
+
+        (layer, layerIndex) => {
+
+            const group =
+                new THREE.Group();
+
+
+            const layerNodesArray =
+                [];
+
+
+            const spacing =
+                portrait ? 0.65 : 0.85;
+
+
+            const total =
+                (layer.count - 1)
+                * spacing;
+
+
+            for(
+                let i = 0;
+                i < layer.count;
+                i++
+            ) {
+
+                let x;
+                let y;
+
+
+                if(portrait) {
+
+                    x =
+                        (i * spacing)
+                        - total / 2;
+
+                    y =
+                        layer.y;
+
+                }
+
+                else {
+
+                    x =
+                        layer.x;
+
+                    y =
+                        (i * spacing)
+                        - total / 2;
+
+                }
+
+
+                const neuron =
+                    createNeuron(
+                        layer.color,
+                        i + 1
+                    );
+
+
+                neuron.position.set(
+                    x,
+                    y,
+                    0
+                );
+
+
+                group.add(
+                    neuron
+                );
+
+
+                layerNodesArray.push(
+                    neuron
+                );
+
+
+                nodes.push(
+                    neuron
+                );
+
+            }
+
+
+            /* LAYER NAME */
+
+            const label =
+                createTextSprite(
+                    layer.name,
+                    portrait
+                    ? 0.52
+                    : 0.48
+                );
+
+
+            if(portrait) {
+
+                label.position.set(
+                    0,
+                    layer.y + 0.65,
+                    0
+                );
+
+            }
+
+            else {
+
+                label.position.set(
+                    layer.x,
+                    2.35,
+                    0
+                );
+
+            }
+
+
+            group.add(label);
+
+
+            network.add(group);
+
+
+            layerGroups.push(
+                group
+            );
+
+
+            layerNodes.push(
+                layerNodesArray
+            );
+
+        }
+
+    );
+
+
+    /* =================================================
+       CONNECTIONS
+    ================================================= */
+
+    for(
+        let l = 0;
+        l < layerNodes.length - 1;
+        l++
+    ) {
+
+        layerNodes[l].forEach(
+
+            a => {
+
+                layerNodes[l + 1].forEach(
+
+                    b => {
+
+                        const line =
+                            createConnection(
+                                a.position,
+                                b.position
+                            );
+
+
+                        network.add(
+                            line
+                        );
+
+
+                        connections.push(
+                            line
+                        );
+
+                    }
+
+                );
+
+            }
+
+        );
+
+    }
+
+
+    /* =================================================
+       EXTRA TEXT
+    ================================================= */
+
+    const imageLabel =
+        createTextSprite(
+            "IMAGE DATA",
+            0.40
+        );
+
+
+    if(portrait) {
+
+        imageLabel.position.set(
+            0,
+            3.65,
+            0
+        );
+
+    }
+
+    else {
+
+        imageLabel.position.set(
+            -3.7,
+            -2.25,
+            0
+        );
+
+    }
+
+
+    network.add(
+        imageLabel
+    );
+
+
+    const featureLabel =
+        createTextSprite(
+            "FEATURE EXTRACTION",
+            0.36
+        );
+
+
+    if(portrait) {
+
+        featureLabel.position.set(
+            0,
+            -1.55,
+            0
+        );
+
+    }
+
+    else {
+
+        featureLabel.position.set(
+            0,
+            -2.25,
+            0
+        );
+
+    }
+
+
+    network.add(
+        featureLabel
+    );
+
+
+    const outputLabel =
+        createTextSprite(
+            "CAT 92%",
+            0.43
+        );
+
+
+    if(portrait) {
+
+        outputLabel.position.set(
+            0,
+            -3.15,
+            0
+        );
+
+    }
+
+    else {
+
+        outputLabel.position.set(
+            3.7,
+            -1.2,
+            0
+        );
+
+    }
+
+
+    network.add(
+        outputLabel
+    );
+
+
+    /* =================================================
+       DATA PACKETS
+    ================================================= */
+
+    createPacket(
+        layerNodes[0][0],
+        layerNodes[1][2]
+    );
+
+
+    createPacket(
+        layerNodes[1][2],
+        layerNodes[2][1]
+    );
+
+
+    createPacket(
+        layerNodes[2][1],
+        layerNodes[3][0]
+    );
+
+
+    /* =================================================
+       SCALE
+    ================================================= */
+
+    if(portrait) {
+
+        network.scale.set(
+            0.82,
+            0.82,
+            0.82
+        );
+
+    }
+
+    else {
+
+        network.scale.set(
+            0.92,
+            0.92,
+            0.92
+        );
+
+    }
+
+}
+
+
+/* =====================================================
+   NEURON
+===================================================== */
+
+function createNeuron(
+    color,
+    number
+) {
+
+    const geometry =
+        new THREE.SphereGeometry(
+            0.22,
+            24,
+            24
+        );
+
+
+    const material =
+        new THREE.MeshStandardMaterial({
+
+            color: color,
+
+            emissive: color,
+
+            emissiveIntensity: 0.25,
+
+            metalness: 0.1,
+
+            roughness: 0.35
+
+        });
+
+
+    const neuron =
+        new THREE.Mesh(
+            geometry,
+            material
+        );
+
+
+    const numberLabel =
+        createTextSprite(
+            String(number),
+            0.28
+        );
+
+
+    numberLabel.position.z =
+        0.30;
+
+
+    neuron.add(
+        numberLabel
+    );
+
+
+    return neuron;
+
+}
+
+
+/* =====================================================
+   CONNECTION
+===================================================== */
+
+function createConnection(
+    start,
+    end
+) {
+
+    const geometry =
+        new THREE.BufferGeometry()
+        .setFromPoints([
+
+            new THREE.Vector3(
+                start.x,
+                start.y,
+                start.z
+            ),
+
+            new THREE.Vector3(
+                end.x,
+                end.y,
+                end.z
+            )
+
+        ]);
+
+
+    const material =
+        new THREE.LineBasicMaterial({
+
+            color: 0xffffff,
+
+            transparent: true,
+
+            opacity: 0.25
+
+        });
+
+
+    return new THREE.Line(
+        geometry,
+        material
+    );
+
+}
+
+
+/* =====================================================
+   DATA PACKET
+===================================================== */
+
+function createPacket(
+    startNode,
+    endNode
+) {
+
+    const geometry =
+        new THREE.SphereGeometry(
+            0.10,
+            16,
+            16
+        );
+
+
+    const material =
+        new THREE.MeshBasicMaterial({
+
+            color: 0xffffff
+
+        });
+
+
+    const packet =
+        new THREE.Mesh(
+            geometry,
+            material
+        );
+
+
+    packet.position.copy(
+        startNode.position
+    );
+
+
+    packet.position.z =
+        0.25;
+
+
+    network.add(
+        packet
+    );
+
+
+    packets.push({
+
+        mesh: packet,
+
+        start: startNode,
+
+        end: endNode,
+
+        progress: Math.random(),
+
+        speed: 0.65
+
+    });
+
+}
+
+
+/* =====================================================
+   TEXT
+===================================================== */
+
+function createTextSprite(
+    text,
+    size
+) {
+
+    const canvas =
+        document.createElement(
+            "canvas"
+        );
+
+
+    canvas.width =
+        1200;
+
+    canvas.height =
+        300;
+
+
+    const ctx =
+        canvas.getContext(
+            "2d"
+        );
+
+
+    ctx.clearRect(
+        0,
+        0,
+        canvas.width,
+        canvas.height
+    );
+
+
+    /* BACKGROUND */
+
+    ctx.fillStyle =
+        "rgba(0,0,0,0.78)";
+
+
+    ctx.beginPath();
+
+    ctx.roundRect(
+        20,
+        25,
+        1160,
+        250,
+        35
+    );
+
+    ctx.fill();
+
+
+    /* TEXT */
+
+    ctx.fillStyle =
+        "white";
+
+
+    ctx.font =
+        "bold 90px Arial";
+
+
+    ctx.textAlign =
+        "center";
+
+
+    ctx.textBaseline =
+        "middle";
+
+
+    ctx.fillText(
+        text,
+        600,
+        150
+    );
+
+
+    const texture =
+        new THREE.CanvasTexture(
+            canvas
+        );
+
+
+    texture.needsUpdate =
+        true;
+
+
+    const material =
+        new THREE.SpriteMaterial({
+
+            map: texture,
+
+            transparent: true,
+
+            depthTest: false
+
+        });
+
+
+    const sprite =
+        new THREE.Sprite(
+            material
+        );
+
+
+    sprite.scale.set(
+        2.7 * size,
+        0.68 * size,
+        1
+    );
+
+
+    return sprite;
+
+}
+
+
+/* =====================================================
+   ANIMATION
+===================================================== */
+
+function animate() {
+
+    requestAnimationFrame(
+        animate
+    );
+
+
+    const elapsed =
+        clock.getElapsedTime();
+
+
+    /* -----------------------------------------------
+       LAYER-BY-LAYER ACTIVATION
+    ----------------------------------------------- */
+
+    const activeLayer =
+        Math.floor(
+            elapsed * 0.9
+        ) % 4;
+
+
+    layerGroups.forEach(
+
+        (group, index) => {
+
+            let targetScale =
+                index === activeLayer
+                ? 1.18
+                : 1.0;
+
+
+            group.scale.lerp(
+
+                new THREE.Vector3(
+                    targetScale,
+                    targetScale,
+                    targetScale
+                ),
+
+                0.08
+
+            );
+
+        }
+
+    );
+
+
+    /* -----------------------------------------------
+       NEURON GLOW
+    ----------------------------------------------- */
+
+    nodes.forEach(
+
+        node => {
+
+            const material =
+                node.material;
+
+
+            const pulse =
+                0.25 +
+                Math.sin(
+                    elapsed * 3
+                ) * 0.08;
+
+
+            material.emissiveIntensity =
+                pulse;
+
+        }
+
+    );
+
+
+    /* -----------------------------------------------
+       DATA MOVEMENT
+    ----------------------------------------------- */
+
+    packets.forEach(
+
+        packet => {
+
+            packet.progress +=
+                0.012 *
+                packet.speed;
+
+
+            if(
+                packet.progress > 1
+            ) {
+
+                packet.progress = 0;
+
+            }
+
+
+            packet.mesh.position.lerpVectors(
+
+                packet.start.position,
+
+                packet.end.position,
+
+                packet.progress
+
+            );
+
+
+            packet.mesh.position.z =
+                0.30;
+
+        }
+
+    );
+
+
+    /* -----------------------------------------------
+       SMALL 3D ROTATION
+    ----------------------------------------------- */
+
+    network.rotation.y =
+        deviceGamma * 0.003;
+
+
+    network.rotation.x =
+        deviceBeta * 0.001;
+
+
+    /* -----------------------------------------------
+       RENDER
+    ----------------------------------------------- */
+
+    renderer.render(
+        scene,
+        camera3D
+    );
+
+}
+
+
+/* =====================================================
+   DEVICE MOVEMENT
+===================================================== */
+
+function enableDeviceMovement() {
+
+    if(
+        window.DeviceOrientationEvent
+    ) {
+
+        window.addEventListener(
+
+            "deviceorientation",
+
+            event => {
+
+                if(
+                    event.gamma !== null
+                ) {
+
+                    deviceGamma =
+                        event.gamma;
+
+                }
+
+
+                if(
+                    event.beta !== null
+                ) {
+
+                    deviceBeta =
+                        event.beta;
+
+                }
+
+            },
+
+            true
+
+        );
+
+    }
+
+}
+
+
+/* =====================================================
+   RESIZE / ORIENTATION CHANGE
+===================================================== */
+
+function handleResize() {
+
+    camera3D.aspect =
+        window.innerWidth /
+        window.innerHeight;
+
+
+    camera3D.updateProjectionMatrix();
+
+
+    renderer.setSize(
+        window.innerWidth,
+        window.innerHeight
+    );
+
+
+    /*
+       Completely rebuild the
+       network for portrait/landscape.
+    */
+
+    layerGroups = [];
+
+
+    buildLayout();
+
+}
+
+
+/* =====================================================
+   START
+===================================================== */
+
+</script>
+
+</body>
+</html>
